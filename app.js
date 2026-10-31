@@ -442,13 +442,16 @@ const routes = {
   ai() {
     app.innerHTML = `<h2 class="page">🤖 المساعد الذكي</h2>
       <div class="muted" style="margin-bottom:8px">اسأل عن أي درس أو سؤال، أو اطلب خطة مراجعة لنقاط ضعفك.</div>
-      <div class="chat" id="chat">${chatLog.map(bubble).join('') || `<div class="msg bot">أهلاً ${esc(S.name)} 👋 أنا مساعدك في الدراسة. شو بتحب نتعلم اليوم؟</div>`}</div>
+      <div class="chat" id="chat">${chatLog.map((m, i) => bubble(m, i)).join('') || `<div class="msg bot">أهلاً ${esc(S.name)} 👋 أنا مساعدك في الدراسة. شو بتحب نتعلم اليوم؟</div>`}</div>
       <div class="chips">${['اعملّي خطة مراجعة لنقاط ضعفي', 'اشرحلي درساً من كتاب العربي بطريقة سهلة', 'اسألني 5 أسئلة في الرياضيات', 'كيف أنظّم وقت دراستي؟'].map((t) => `<button class="chip">${t}</button>`).join('')}</div>
       ${pendingImg ? `<div class="pimg"><img src="${pendingImg.url}" alt=""><span>${esc(pendingImg.label || 'صورة مرفقة')}</span><button class="x" id="pimgX">✕</button></div>` : ''}
       <form class="ask" id="askF"><label class="cam" title="صوّر السؤال أو اختر صورة">📷<input type="file" accept="image/*" capture="environment" id="askImg" hidden></label>
+        ${Rec ? '<button type="button" class="cam" id="micBtn" title="اسأل بصوتك">🎤</button>' : ''}
         <input id="askQ" placeholder="${pendingImg ? 'اكتب شو بدك تعرف عن الصورة (اختياري)…' : 'اكتب سؤالك أو صوّر السؤال من الكتاب 📷'}" autocomplete="off"><button class="btn">إرسال</button></form>`;
     const box = $('chat'); box.scrollTop = box.scrollHeight;
     app.querySelectorAll('.chip').forEach((c) => c.onclick = () => askAI(c.textContent));
+    if (Rec) $('micBtn').onclick = (e) => listen(e.currentTarget);
+    app.querySelectorAll('.say').forEach((b) => b.onclick = () => speak(chatLog[+b.dataset.i].text));
     $('askImg').onchange = async (e) => { const f = e.target.files[0]; if (f) { pendingImg = await shrinkImage(f); routes.ai(); } };
     if (pendingImg) $('pimgX').onclick = () => { pendingImg = null; routes.ai(); };
     $('askF').onsubmit = (e) => {
@@ -503,7 +506,25 @@ function subjectReport(id) {
 const chatLog = [];
 let aiChat = null;
 const AI_MODELS = ['gemini-flash-lite-latest', 'gemini-flash-latest']; // older pinned names were retired by Google
-const bubble = (m) => `<div class="msg ${m.who}">${m.img ? `<img class="mimg" src="${m.img}" alt="">` : ''}${m.who === 'bot' ? fmtAI(m.text) : esc(m.text)}</div>`;
+const bubble = (m, i) => `<div class="msg ${m.who}">${m.img ? `<img class="mimg" src="${m.img}" alt="">` : ''}${m.who === 'bot' ? fmtAI(m.text) : esc(m.text)}${m.ok && m.who === 'bot' && window.speechSynthesis ? `<button class="say" data-i="${i}" title="اسمع الجواب">🔊</button>` : ''}</div>`;
+// ---- voice: speak a question (browser speech recognition), hear the answer (speech synthesis) ----
+const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+let speakNext = false;
+function speak(t) {
+  const ss = window.speechSynthesis; if (!ss) return;
+  ss.cancel();
+  const u = new SpeechSynthesisUtterance(t.replace(/[#*_`]/g, '').replace(/\p{Extended_Pictographic}/gu, ''));
+  u.lang = 'ar'; const v = ss.getVoices().find((x) => /^ar/i.test(x.lang)); if (v) u.voice = v;
+  u.rate = S.grade <= 4 ? 0.9 : 1; ss.speak(u);
+}
+function listen(btn) {
+  const r = new Rec(); r.lang = 'ar-PS'; r.interimResults = false; r.maxAlternatives = 1;
+  btn.classList.add('rec'); toast('🎤 احكي سؤالك…');
+  r.onresult = (e) => { const t = e.results[0][0].transcript.trim(); if (t) { speakNext = true; askAI(t); } };
+  r.onerror = (e) => toast(e.error === 'not-allowed' ? 'لازم تسمح للموقع يستعمل المايك' : 'ما سمعت منيح، جرّب مرة ثانية');
+  r.onend = () => btn.classList.remove('rec');
+  r.start();
+}
 let pendingImg = null; // {url, data, label} — image waiting to be sent with the next question
 function shrinkImage(src, label) { // File or canvas -> small JPEG so uploads stay fast on phones
   return new Promise((ok) => {
@@ -543,6 +564,7 @@ ${studentSummary()}
 - عند طلب خطة مراجعة ركّز على الدروس الضعيفة أعلاه.
 - في الإنجليزي اشرح بالعربية مع أمثلة إنجليزية.
 - إذا أرسل الطالب صورة سؤال أو صفحة من الكتاب: اقرأها بدقة، واشرح طريقة الحل خطوة بخطوة، ثم اذكر الجواب في النهاية ليتأكد منه.
+- التزم بمحتوى كتب المنهاج: لما يسأل عن معلومة من الكتاب جاوب منها مباشرة بجواب بسيط، ولا تخرج عن مواضيع الدراسة.
 - إجاباتك قصيرة وواضحة، وابتعد عن أي موضوع غير مناسب للأطفال، وأعد الطالب بلطف إلى الدراسة.`;
   return (m) => getGenerativeModel(ai, { model: m, systemInstruction: sys }).startChat({
     history: chatLog.filter((x) => x.ok).map((x) => ({ role: x.who === 'me' ? 'user' : 'model', parts: [{ text: x.text }] })),
@@ -570,6 +592,7 @@ async function askAI(q, img) {
       }
     }
     pending.text = r.response.text(); pending.ok = true; chatLog[chatLog.length - 2].ok = true;
+    if (speakNext) speak(pending.text);
   } catch (e) {
     aiChat = null;
     pending.text = /not.?enabled|has not been used|PERMISSION|api-not-enabled|403/i.test(String(e && e.message))
@@ -578,6 +601,7 @@ async function askAI(q, img) {
       : 'صار خطأ بالاتصال، جرّب مرة ثانية بعد شوي.';
     console.warn('AI error', e);
   }
+  speakNext = false;
   if (parse().name === 'ai') routes.ai();
 }
 

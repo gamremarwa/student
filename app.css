@@ -189,3 +189,7 @@ table.gt{width:100%;border-collapse:collapse;background:var(--card);border-radiu
 .subj.cur{outline:3px solid var(--brand2);outline-offset:-3px}
 .chip.on{background:var(--brand);color:#fff}
 .gpick .ic{font-weight:800;color:var(--brand)}
+/* voice */
+.cam.rec{background:#fee2e2;border-color:var(--red);animation:pulse 1s infinite}
+@keyframes pulse{50%{transform:scale(1.08)}}
+.msg .say{display:block;margin-top:6px;border:0;background:none;font-size:18px;cursor:pointer;padding:0}

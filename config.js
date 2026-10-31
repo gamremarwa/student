@@ -15,45 +15,79 @@ window.PLATFORM = {
    "subjects": [
     {
      "id": "arabic",
-     "name": "لغتنا الجميلة",
+     "name": "اللغة العربية",
      "icon": "📖",
      "color": "#e11d48",
-     "books": []
+     "books": [
+      {
+       "title": "اللغة العربية - 1",
+       "file": "https://gamremarwa.github.io/books-g1/arabic-1.pdf"
+      },
+      {
+       "title": "اللغة العربية - 2",
+       "file": "https://gamremarwa.github.io/books-g1/arabic-2.pdf"
+      }
+     ]
     },
     {
      "id": "english",
      "name": "اللغة الإنجليزية",
      "icon": "🔤",
      "color": "#7c3aed",
-     "books": []
+     "books": [
+      {
+       "title": "اللغة الإنجليزية - 1",
+       "file": "https://gamremarwa.github.io/books-g1/english-1.pdf"
+      },
+      {
+       "title": "اللغة الإنجليزية - 2",
+       "file": "https://gamremarwa.github.io/books-g1/english-2.pdf"
+      }
+     ]
     },
     {
      "id": "math",
      "name": "الرياضيات",
      "icon": "➗",
      "color": "#2563eb",
-     "books": []
-    },
-    {
-     "id": "science",
-     "name": "العلوم والحياة",
-     "icon": "🔬",
-     "color": "#16a34a",
-     "books": []
+     "books": [
+      {
+       "title": "الرياضيات - 1",
+       "file": "https://gamremarwa.github.io/books-g1/math-1.pdf"
+      },
+      {
+       "title": "الرياضيات - 2",
+       "file": "https://gamremarwa.github.io/books-g1/math-2.pdf"
+      }
+     ]
     },
     {
      "id": "islamic",
      "name": "التربية الإسلامية",
      "icon": "🕌",
      "color": "#0d9488",
-     "books": []
+     "books": [
+      {
+       "title": "التربية الإسلامية - 2",
+       "file": "https://gamremarwa.github.io/books-g1/islamic-2.pdf"
+      }
+     ]
     },
     {
      "id": "social",
-     "name": "التنشئة الوطنية",
+     "name": "التنشئة الوطنية والاجتماعية",
      "icon": "🇵🇸",
      "color": "#d97706",
-     "books": []
+     "books": [
+      {
+       "title": "التنشئة الوطنية والاجتماعية - 1",
+       "file": "https://gamremarwa.github.io/books-g1/social-1.pdf"
+      },
+      {
+       "title": "التنشئة الوطنية والاجتماعية - 2",
+       "file": "https://gamremarwa.github.io/books-g1/social-2.pdf"
+      }
+     ]
     }
    ]
   },
@@ -62,45 +96,75 @@ window.PLATFORM = {
    "subjects": [
     {
      "id": "arabic",
-     "name": "لغتنا الجميلة",
+     "name": "اللغة العربية",
      "icon": "📖",
      "color": "#e11d48",
-     "books": []
+     "books": [
+      {
+       "title": "اللغة العربية - 1",
+       "file": "https://gamremarwa.github.io/books-g2/arabic-1.pdf"
+      },
+      {
+       "title": "اللغة العربية - 2",
+       "file": "https://gamremarwa.github.io/books-g2/arabic-2.pdf"
+      }
+     ]
     },
     {
      "id": "english",
      "name": "اللغة الإنجليزية",
      "icon": "🔤",
      "color": "#7c3aed",
-     "books": []
+     "books": [
+      {
+       "title": "اللغة الإنجليزية - 1",
+       "file": "https://gamremarwa.github.io/books-g2/english-1.pdf"
+      }
+     ]
     },
     {
      "id": "math",
      "name": "الرياضيات",
      "icon": "➗",
      "color": "#2563eb",
-     "books": []
-    },
-    {
-     "id": "science",
-     "name": "العلوم والحياة",
-     "icon": "🔬",
-     "color": "#16a34a",
-     "books": []
+     "books": [
+      {
+       "title": "الرياضيات - 1",
+       "file": "https://gamremarwa.github.io/books-g2/math-1.pdf"
+      },
+      {
+       "title": "الرياضيات - 2",
+       "file": "https://gamremarwa.github.io/books-g2/math-2.pdf"
+      }
+     ]
     },
     {
      "id": "islamic",
      "name": "التربية الإسلامية",
      "icon": "🕌",
      "color": "#0d9488",
-     "books": []
+     "books": [
+      {
+       "title": "التربية الإسلامية - 2",
+       "file": "https://gamremarwa.github.io/books-g2/islamic-2.pdf"
+      }
+     ]
     },
     {
      "id": "social",
-     "name": "التنشئة الوطنية",
+     "name": "التنشئة الوطنية والاجتماعية",
      "icon": "🇵🇸",
      "color": "#d97706",
-     "books": []
+     "books": [
+      {
+       "title": "التنشئة الوطنية والاجتماعية - 1",
+       "file": "https://gamremarwa.github.io/books-g2/social-1.pdf"
+      },
+      {
+       "title": "التنشئة الوطنية والاجتماعية - 2",
+       "file": "https://gamremarwa.github.io/books-g2/social-2.pdf"
+      }
+     ]
     }
    ]
   },
