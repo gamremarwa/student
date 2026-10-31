@@ -213,3 +213,4 @@ table.gt{width:100%;border-collapse:collapse;background:var(--card);border-radiu
 .rq{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .rq select{border:1.5px solid var(--line);border-radius:10px;padding:6px;font:inherit}
 button.bigbtn{font:inherit;border:0;cursor:pointer}
+.pinf{-webkit-text-security:disc;text-security:disc;letter-spacing:4px}

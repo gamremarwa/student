@@ -1,7 +1,7 @@
 // Study platform (grades 1–12). One family account (parent's email) holds several child profiles;
 // editing, reports and grades unlock with a parent PIN. Catalog in config.js, tests in grades/g<N>/tests-<subject>.js.
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js';
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut } from 'https://www.gstatic.com/firebasejs/12.3.0/firebase-auth.js';
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut, reauthenticateWithCredential, EmailAuthProvider } from 'https://www.gstatic.com/firebasejs/12.3.0/firebase-auth.js';
 import { getFirestore, doc, getDoc, getDocs, deleteDoc, onSnapshot, setDoc, collection, query, where, serverTimestamp, arrayUnion, increment } from 'https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js';
 
 const P = window.PLATFORM;
@@ -142,32 +142,66 @@ onAuthStateChanged(auth, async (u) => {
 
 // ---- parent PIN (a family lock on top of the account password) ----
 async function sha(t) { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('pin:' + t)); return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join(''); }
+// Arabic/Persian keyboards type ١٢٣ / ۱۲۳: always store and compare Latin digits
+const latinDigits = (t) => t.replace(/[٠-٩]/g, (d) => d.charCodeAt(0) - 0x660).replace(/[۰-۹]/g, (d) => d.charCodeAt(0) - 0x6f0).replace(/\s/g, '');
 function updateLock() { const l = $('lockBtn'); if (!l) return; l.hidden = !(isMama || isParentAcct); l.textContent = parentMode ? '🔓 الأهل' : '🔒 الأهل'; l.classList.toggle('on', parentMode); }
 let lockTimer;
-function askPin(then) {
+// a text field drawn as dots, so the browser never autofills the account password into it
+const pinInput = (id, ph) => `<input type="text" class="pinf" id="${id}" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="${ph}" dir="ltr">`;
+function unlockParent(then) {
+  parentMode = true; $('modal').classList.remove('show'); updateLock(); toast('تم فتح وضع الأهل 🔓');
+  clearTimeout(lockTimer); lockTimer = setTimeout(() => { parentMode = false; updateLock(); rerender(); }, 20 * 60e3); // auto-lock after 20 min
+  then ? then() : rerender();
+}
+function askPin(then, mode) {
   if (!isMama && !isParentAcct) return toast('هذا للأهل فقط');
-  if (parentMode) { parentMode = false; updateLock(); rerender(); return toast('تم قفل وضع الأهل 🔒'); }
-  const m = $('modal'), first = !pinHash;
-  $('modalBox').innerHTML = `<h3>🔒 رمز الأهل</h3><div class="muted">${first ? 'اختاري رمزاً سرياً (4 أرقام أو أكثر) لفتح التعديل والتقارير. لا تعطيه للأولاد.' : 'اكتبي الرمز السري لفتح وضع الأهل'}</div>
-    <input type="password" id="pin" inputmode="numeric" placeholder="الرمز السري" dir="ltr">
-    ${first ? '<input type="password" id="pin2" inputmode="numeric" placeholder="أعيدي الرمز" dir="ltr">' : ''}
+  if (parentMode && !mode) { parentMode = false; updateLock(); rerender(); return toast('تم قفل وضع الأهل 🔒'); }
+  mode ||= pinHash ? 'enter' : 'set';
+  const m = $('modal'), box = $('modalBox'), err = (t) => { $('pinErr').textContent = t; };
+  if (mode === 'forgot') { // prove it's the parent with the account password; that password can be reset by email
+    box.innerHTML = `<h3>🔑 نسيتي الرمز السري؟</h3><div class="muted">اكتبي كلمة مرور حسابك (<span dir="ltr">${esc(myEmail())}</span>) وبعدها بتختاري رمز جديد.</div>
+      <input type="password" id="accPw" autocomplete="current-password" placeholder="كلمة مرور الحساب" dir="ltr">
+      <div class="err" id="pinErr"></div>
+      <div style="display:flex;gap:8px"><button class="btn" id="pinGo">متابعة</button><button class="btn ghost" id="pinX">إلغاء</button></div>
+      <a href="#" id="mailReset" class="muted" style="display:block;margin-top:10px;font-size:14px">📧 نسيت كلمة المرور كمان؟ ابعتولي رابط على الإيميل</a>`;
+    m.classList.add('show');
+    $('pinGo').onclick = async () => {
+      try { await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, $('accPw').value)); }
+      catch (x) { return err(/too-many/.test(String(x && x.code)) ? 'محاولات كثيرة، استني شوي' : 'كلمة المرور غير صحيحة'); }
+      askPin(then, 'set');
+    };
+    $('accPw').onkeydown = (e) => { if (e.key === 'Enter') $('pinGo').click(); };
+    $('mailReset').onclick = async (ev) => { ev.preventDefault();
+      try { await sendPasswordResetEmail(auth, user.email); } catch { return err('ما زبط الإرسال، جربي بعد شوي'); }
+      err(''); toast('📧 بعتنالك رابط على الإيميل. غيّري كلمة المرور وارجعي لهون واكتبيها');
+    };
+    $('pinX').onclick = () => m.classList.remove('show');
+    setTimeout(() => $('accPw').focus(), 50);
+    return;
+  }
+  const set = mode === 'set';
+  box.innerHTML = `<h3>🔒 رمز الأهل</h3><div class="muted">${set ? 'اختاري رمزاً سرياً (4 أرقام أو أكثر) لفتح التعديل والتقارير. لا تعطيه للأولاد.' : 'اكتبي الرمز السري لفتح وضع الأهل'}</div>
+    ${pinInput('pin', set ? 'الرمز الجديد' : 'الرمز السري')}
+    ${set ? pinInput('pin2', 'أعيدي الرمز') : ''}
     <div class="err" id="pinErr"></div>
-    <div style="display:flex;gap:8px"><button class="btn" id="pinGo">فتح</button><button class="btn ghost" id="pinX">إلغاء</button></div>`;
+    <div style="display:flex;gap:8px"><button class="btn" id="pinGo">${set ? 'حفظ' : 'فتح'}</button><button class="btn ghost" id="pinX">إلغاء</button></div>
+    ${set ? '' : '<a href="#" id="pinForgot" class="muted" style="display:block;margin-top:10px;font-size:14px">نسيتي الرمز السري؟</a>'}`;
   m.classList.add('show');
   $('pinGo').onclick = async () => {
-    const v = $('pin').value.trim();
-    if (v.length < 4) return $('pinErr').textContent = 'الرمز لازم يكون 4 خانات أو أكثر';
-    if (first) {
-      if (v !== $('pin2').value.trim()) return $('pinErr').textContent = 'الرمزين مش متطابقين';
+    const raw = $('pin').value.trim(), v = latinDigits(raw);
+    if (v.length < 4) return err('الرمز لازم يكون 4 خانات أو أكثر');
+    if (set) {
+      if (v !== latinDigits($('pin2').value)) return err('الرمزين مش متطابقين');
       const h = await sha(v);
-      try { await setDoc(doc(db, 'owners', (user.email || '').toLowerCase()), { pin: h }, { merge: true }); pinHash = h; }
-      catch { return $('pinErr').textContent = 'ما زبط الحفظ — تأكدي إن قواعد Firebase محدّثة'; }
-    } else if (await sha(v) !== pinHash) return $('pinErr').textContent = 'الرمز غير صحيح';
-    parentMode = true; m.classList.remove('show'); updateLock(); toast('تم فتح وضع الأهل 🔓');
-    clearTimeout(lockTimer); lockTimer = setTimeout(() => { parentMode = false; updateLock(); rerender(); }, 20 * 60e3); // auto-lock after 20 min
-    then ? then() : rerender();
+      try { await setDoc(doc(db, 'owners', myEmail()), { pin: h }, { merge: true }); pinHash = h; }
+      catch { return err('ما زبط الحفظ — تأكدي إن قواعد Firebase محدّثة'); }
+      toast('تم حفظ الرمز الجديد ✅');
+    } else if (await sha(v) !== pinHash && await sha(raw) !== pinHash) return err('الرمز غير صحيح'); // raw: PINs saved before digit normalising
+    unlockParent(then);
   };
-  $('pin').onkeydown = (e) => { if (e.key === 'Enter') $('pinGo').click(); };
+  $('pin').onkeydown = (e) => { if (e.key === 'Enter') (set ? $('pin2').focus() : $('pinGo').click()); };
+  if (set) $('pin2').onkeydown = (e) => { if (e.key === 'Enter') $('pinGo').click(); };
+  if (!set) $('pinForgot').onclick = (ev) => { ev.preventDefault(); askPin(then, 'forgot'); };
   $('pinX').onclick = () => m.classList.remove('show');
   setTimeout(() => $('pin').focus(), 50);
 }
