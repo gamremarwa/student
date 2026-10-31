@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1d4ed8">
+<link rel="apple-touch-icon" href="images/icon-192.png">
+<title>منصة الطالب</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css?v=9">
+</head>
+<body>
+<header class="topbar"><div class="in">
+  <a class="home" href="#/" title="الرئيسية">🏠</a>
+  <div class="who"><b id="sname"></b><small id="sgrade"></small></div>
+  <button class="mama" id="lockBtn" hidden>🔒 الأهل</button>
+  <button class="mama" id="mamaBtn">👤 تسجيل الدخول</button>
+</div></header>
+
+<main id="app"></main>
+
+<div class="modal" id="modal"><div class="box" id="modalBox"></div></div>
+<div class="toast" id="toast"></div>
+
+<script src="config.js?v=3"></script>
+<script type="module" src="app.js?v=10"></script>
+<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});</script>
+</body>
+</html>
