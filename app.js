@@ -40,6 +40,13 @@ let user = null;
 let access = { parents: [], students: [] };
 let kids = [];            // [{sid, name, grade}] profiles this account can open
 let pinHash = null;       // owners/{email}.pin
+let role = null;          // owners/{email}.role: 'parent' | 'student' (asked once after sign-up)
+let isParentAcct = false; // a parent account (may add children) even before any child exists
+let requests = [];        // link requests children sent to this parent
+let myRequest = null;     // this student's pending request to a parent
+const myEmail = () => ((user && user.email) || '').toLowerCase();
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const newSid = () => 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 let infoLoaded = false;
 let unsubs = [];
 
@@ -48,6 +55,7 @@ const auth = getAuth(fb);
 const db = getFirestore(fb);
 let infoRef = null, accessRef = null;
 const canEdit = () => isMama && parentMode;
+const famEdit = () => isParentAcct && parentMode; // family-level actions: add children, accept requests
 const canSeeReport = () => canEdit() || isStudentAcct;
 const gradeOf = (r) => r.grade || (P.legacy[r.sid] && P.legacy[r.sid].grade);
 
@@ -96,23 +104,28 @@ async function openChild(sid) {
   parentMode = false; setChild(k); await roleFor(sid); updateLock(); subscribe(); go('#/'); rerender();
 }
 async function loadKids() {
-  const em = (user.email || '').toLowerCase();
-  const ids = new Set();
+  const em = myEmail();
+  const ids = new Set(), par = new Set();
   for (const f of ['parents', 'students']) {
     const qs = await getDocs(query(collection(db, 'access'), where(f, 'array-contains', em))).catch(() => null);
-    qs && qs.forEach((d) => ids.add(d.id));
+    qs && qs.forEach((d) => { ids.add(d.id); if (f === 'parents') par.add(d.id); });
   }
-  if (em === S.mamaEmail) Object.keys(P.legacy).forEach((sid) => ids.add(sid)); // the original account owns the first two children
+  if (em === S.mamaEmail) Object.keys(P.legacy).forEach((sid) => { ids.add(sid); par.add(sid); }); // the original account owns the first two children
   kids = [];
   for (const sid of ids) {
     const d = await getDoc(doc(db, 'students', sid)).then((x) => x.exists() ? x.data() : {}, () => ({}));
     const L = P.legacy[sid] || {};
-    kids.push({ sid, name: d.name || L.name || 'طالب', grade: +(d.grade || L.grade || 1) });
+    kids.push({ sid, name: d.name || L.name || 'طالب', grade: +(d.grade || L.grade || 1), parent: par.has(sid) });
   }
-  pinHash = await getDoc(doc(db, 'owners', em)).then((d) => d.exists() ? d.data().pin : null, () => null);
+  const o = await getDoc(doc(db, 'owners', em)).then((d) => d.exists() ? d.data() : {}, () => ({}));
+  pinHash = o.pin || null; role = o.role || null;
+  isParentAcct = em === S.mamaEmail || role === 'parent' || kids.some((k) => k.parent);
+  requests = isParentAcct ? await getDocs(query(collection(db, 'requests'), where('to', '==', em)))
+    .then((qs) => qs.docs.map((d) => ({ id: d.id, ...d.data() })), () => []) : [];
+  myRequest = !isParentAcct && !kids.length ? await getDoc(doc(db, 'requests', em)).then((d) => d.exists() ? d.data() : null, () => null) : null;
 }
 onAuthStateChanged(auth, async (u) => {
-  user = u; isMama = canView = isStudentAcct = parentMode = false; kids = []; access = { parents: [], students: [] };
+  user = u; isMama = canView = isStudentAcct = parentMode = isParentAcct = false; kids = []; requests = []; role = myRequest = null; access = { parents: [], students: [] };
   if (u) {
     await loadKids();
     const last = store.get('kid'), k = kids.find((x) => x.sid === last) || kids[0];
@@ -124,14 +137,15 @@ onAuthStateChanged(auth, async (u) => {
   updateLock();
   subscribe();
   rerender();
+  if (u && !role && !kids.length && !isParentAcct) askRole(); // new account: parent or student?
 });
 
 // ---- parent PIN (a family lock on top of the account password) ----
 async function sha(t) { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('pin:' + t)); return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join(''); }
-function updateLock() { const l = $('lockBtn'); if (!l) return; l.hidden = !isMama; l.textContent = parentMode ? '🔓 الأهل' : '🔒 الأهل'; l.classList.toggle('on', parentMode); }
+function updateLock() { const l = $('lockBtn'); if (!l) return; l.hidden = !(isMama || isParentAcct); l.textContent = parentMode ? '🔓 الأهل' : '🔒 الأهل'; l.classList.toggle('on', parentMode); }
 let lockTimer;
 function askPin(then) {
-  if (!isMama) return toast('هذا للأهل فقط');
+  if (!isMama && !isParentAcct) return toast('هذا للأهل فقط');
   if (parentMode) { parentMode = false; updateLock(); rerender(); return toast('تم قفل وضع الأهل 🔒'); }
   const m = $('modal'), first = !pinHash;
   $('modalBox').innerHTML = `<h3>🔒 رمز الأهل</h3><div class="muted">${first ? 'اختاري رمزاً سرياً (4 أرقام أو أكثر) لفتح التعديل والتقارير. لا تعطيه للأولاد.' : 'اكتبي الرمز السري لفتح وضع الأهل'}</div>
@@ -222,12 +236,13 @@ const routes = {
         : `<div class="txt ${n ? '' : 'empty'}">${!canView ? '' : infoLoaded ? esc(n || 'لا يوجد تنبيه حالياً') : 'جاري التحميل…'}</div>`}
         ${info && info.noteAt ? `<div class="when">🕒 آخر تعديل: ${fmtDate(info.noteAt)}</div>` : ''}
       </section>
+      ${user && !S.sid ? `<a class="card banner" href="${isParentAcct ? '#/kids' : '#/link'}">${isParentAcct ? '👧👦 أضيفي أولادك عشان تتابعي تقدّمهم' : '🔗 اربط حسابك مع ماما أو بابا عشان تنحفظ نتائجك'}</a>` : ''}
       <div class="big">
         <a class="bigbtn" href="#/schedule"><span class="ic">🗓️</span><b>جدول الدراسة</b><small>مادة لكل يوم</small></a>
         <a class="bigbtn" href="#/subjects"><span class="ic">📚</span><b>المواد</b><small>الكتب والاختبارات</small></a>
         <a class="bigbtn" href="#/report"><span class="ic">📊</span><b>التقرير</b><small>نقاط القوة والضعف</small></a>
         <a class="bigbtn" href="#/grades"><span class="ic">📝</span><b>علامات المدرسة</b><small>${canEdit() ? 'أضيفي علامة' : 'العلامات'}</small></a>
-        <a class="bigbtn wide sw2" href="${user && kids.length ? '#/kids' : '#/pick'}"><span class="ic">${user && kids.length ? '👧👦' : '🎓'}</span><b>${user && kids.length ? 'تبديل الطالب' : 'اختيار الصف'}</b><small>${esc(S.name ? S.name + ' — ' : '')}${esc(S.gradeName)}</small></a>
+        <a class="bigbtn wide sw2" href="${isParentAcct && kids.length ? '#/kids' : '#/pick'}"><span class="ic">${isParentAcct && kids.length ? '👧👦' : '🎓'}</span><b>${isParentAcct && kids.length ? 'تبديل الطالب' : 'الصف'}</b><small>${esc(S.name ? S.name + ' — ' : '')}${esc(S.gradeName)}</small></a>
         <a class="bigbtn wide" href="#/ai"><span class="ic">🤖</span><b>المساعد الذكي</b><small>اسأله عن أي شيء في دروسك</small></a>
         ${canEdit() ? '<a class="bigbtn wide" href="#/accounts"><span class="ic">👥</span><b>الحسابات</b><small>الأهل والطالب المرتبطين بالحساب</small></a>' : ''}
       </div>`;
@@ -397,22 +412,77 @@ const routes = {
 
   kids() {
     if (!user) { app.innerHTML = `<h2 class="page">👧👦 الأولاد</h2>${loginCard('سجّلي الدخول بحساب العائلة')}`; return; }
+    if (!isParentAcct) return go('#/link');
+    const mine = kids.filter((k) => k.parent);
+    const unlock = (t) => `<div class="card center" style="margin-top:14px"><button class="btn" onclick="document.getElementById('lockBtn').click()">🔓 ${t}</button></div>`;
     app.innerHTML = `<h2 class="page">👧👦 أولاد العائلة</h2>
-      <div class="grid">${kids.map((k) => `<button class="subj kpick ${k.sid === S.sid ? 'cur' : ''}" data-s="${k.sid}"><span class="ic">${k.grade <= 4 ? '🧒' : '🧑‍🎓'}</span><b>${esc(k.name)}</b><small class="muted">${esc(P.grades[k.grade].name)}</small></button>`).join('')}</div>
-      <div class="card" style="margin-top:14px"><h3>➕ إضافة ولد للعائلة</h3>
+      ${requests.length ? `<div class="card" style="margin-bottom:14px"><h3>📩 طلبات ربط من الأولاد</h3>
+        ${famEdit() ? '' : '<div class="muted">افتحي وضع الأهل 🔒 للموافقة</div>'}
+        ${requests.map((r) => `<div class="edrow"><span>🧒 <b>${esc(r.name)}</b> — ${esc((P.grades[r.grade] || {}).name || '')}<br><small class="muted" dir="ltr">${esc(r.from)}</small></span>
+          ${famEdit() ? `<span class="rq"><select data-id="${esc(r.id)}"><option value="">➕ ولد جديد</option>${mine.map((k) => `<option value="${k.sid}">${esc(k.name)}</option>`).join('')}</select>
+          <button class="btn green rq-ok" data-id="${esc(r.id)}">قبول</button><button class="x rq-no" data-id="${esc(r.id)}">✕</button></span>` : ''}</div>`).join('')}</div>` : ''}
+      ${kids.length ? `<div class="grid">${kids.map((k) => `<button class="subj kpick ${k.sid === S.sid ? 'cur' : ''}" data-s="${k.sid}"><span class="ic">${k.grade <= 4 ? '🧒' : '🧑‍🎓'}</span><b>${esc(k.name)}</b><small class="muted">${esc(P.grades[k.grade].name)}</small></button>`).join('')}</div>`
+        : '<div class="card center muted">لسا ما ضفتي أولاد. أضيفي أول ولد من تحت 👇</div>'}
+      ${famEdit() ? `<div class="card" style="margin-top:14px"><h3>➕ إضافة ولد للعائلة</h3>
         <div class="gform"><label>الاسم<input id="kName" placeholder="اسم الطالب"></label>
         <label>الصف<select id="kGrade">${Object.keys(P.grades).map((g) => `<option value="${g}">${P.grades[g].name}</option>`).join('')}</select></label>
-        <button class="btn green" id="kAdd">إضافة</button></div></div>`;
+        <div class="muted">حساب خاص للطالب (اختياري): إذا كتبتي إيميل وكلمة مرور منعمله حساب يدخل فيه لحاله ويحل الاختبارات.</div>
+        <div class="two"><input id="kEm" type="email" dir="ltr" placeholder="إيميل الطالب"><input id="kPw" type="text" dir="ltr" placeholder="كلمة مرور (6+)"></div>
+        <button class="btn green" id="kAdd">إضافة</button></div></div>` : unlock('افتحي وضع الأهل لإضافة ولد')}`;
     app.querySelectorAll('.kpick').forEach((b) => b.onclick = () => openChild(b.dataset.s));
+    app.querySelectorAll('.rq-ok').forEach((b) => b.onclick = () => {
+      const r = requests.find((x) => x.id === b.dataset.id);
+      approve(r, app.querySelector(`.rq select[data-id="${CSS.escape(r.id)}"]`).value);
+    });
+    app.querySelectorAll('.rq-no').forEach((b) => b.onclick = async () => {
+      if (!confirm('رفض الطلب؟')) return;
+      try { await deleteDoc(doc(db, 'requests', b.dataset.id)); } catch { return toast('ما زبط'); }
+      requests = requests.filter((x) => x.id !== b.dataset.id); routes.kids();
+    });
+    if (!famEdit()) return;
     $('kAdd').onclick = async () => {
-      const name = $('kName').value.trim(), grade = +$('kGrade').value, em = (user.email || '').toLowerCase();
+      const name = $('kName').value.trim(), grade = +$('kGrade').value, em = myEmail();
+      const sEm = $('kEm').value.trim().toLowerCase(), sPw = $('kPw').value;
       if (!name) return toast('اكتبي الاسم');
-      const sid = 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      if (sEm && !EMAIL_RE.test(sEm)) return toast('إيميل الطالب غير صحيح');
+      if (sEm && sPw) { const e = await createChildAccount(sEm, sPw); if (e) return toast(e); }
+      const sid = newSid();
       try {
-        await setDoc(doc(db, 'access', sid), { parents: [em], students: [] });
+        await setDoc(doc(db, 'access', sid), { parents: [em], students: sEm ? [sEm] : [] });
         await setDoc(doc(db, 'students', sid), { name, grade, created: serverTimestamp() });
       } catch { return toast('ما زبط — تأكدي إن قواعد Firebase محدّثة'); }
-      kids.push({ sid, name, grade }); toast(`تمت إضافة ${name} ✅`); openChild(sid);
+      kids.push({ sid, name, grade, parent: true }); toast(`تمت إضافة ${name} ✅`); openChild(sid);
+    };
+  },
+
+  link() { // student account: send a link request to a parent, or see who it is linked with
+    if (!user) { app.innerHTML = `<h2 class="page">🔗 ربط الحساب</h2>${loginCard('سجّل الدخول أولاً')}`; return; }
+    if (isParentAcct) return go('#/kids');
+    if (kids.length) {
+      app.innerHTML = `<h2 class="page">🔗 حسابي</h2><div class="card center">✅ حسابك مربوط مع أهلك<div style="margin-top:8px">${kids.map((k) => `<b>${esc(k.name)}</b> — ${esc(P.grades[k.grade].name)}`).join('<br>')}</div></div>`;
+      return;
+    }
+    app.innerHTML = `<h2 class="page">🔗 ربط حسابي مع أهلي</h2>${myRequest
+      ? `<div class="card center">📨 بعتت طلب لـ <b dir="ltr">${esc(myRequest.to)}</b><div class="muted" style="margin-top:6px">استنى لحتى ماما أو بابا يوافقوا من حسابهم.</div>
+        <div style="margin-top:12px;display:flex;gap:8px;justify-content:center"><button class="btn" id="rqRe">🔄 تحقق</button><button class="btn ghost" id="rqDel">إلغاء الطلب</button></div></div>`
+      : `<div class="card gform"><div class="muted">اكتب إيميل ماما أو بابا (لازم يكون عندهم حساب على المنصة)، وهم بيوافقوا على طلبك من حسابهم.</div>
+        <label>اسمك<input id="lName" placeholder="اسمك"></label>
+        <label>صفك<select id="lGrade">${Object.keys(P.grades).map((g) => `<option value="${g}" ${+g === S.grade ? 'selected' : ''}>${P.grades[g].name}</option>`).join('')}</select></label>
+        <label>إيميل ماما أو بابا<input id="lTo" type="email" dir="ltr" placeholder="mama@example.com"></label>
+        <button class="btn green" id="lSend">إرسال الطلب</button></div>`}`;
+    if (myRequest) {
+      $('rqRe').onclick = () => location.reload();
+      $('rqDel').onclick = async () => { try { await deleteDoc(doc(db, 'requests', myEmail())); myRequest = null; routes.link(); } catch { toast('ما زبط'); } };
+      return;
+    }
+    $('lSend').onclick = async () => {
+      const name = $('lName').value.trim(), grade = +$('lGrade').value, to = $('lTo').value.trim().toLowerCase();
+      if (!name) return toast('اكتب اسمك');
+      if (!EMAIL_RE.test(to)) return toast('الإيميل غير صحيح');
+      if (to === myEmail()) return toast('اكتب إيميل ماما أو بابا مش إيميلك');
+      const r = { from: myEmail(), to, name, grade, at: serverTimestamp() };
+      try { await setDoc(doc(db, 'requests', myEmail()), r); } catch { return toast('ما زبط — جرّب بعد شوي'); }
+      myRequest = r; toast('تم إرسال الطلب 📨'); routes.link();
     };
   },
 
@@ -425,15 +495,17 @@ const routes = {
       <div class="card"><h3>👩‍👦 الأهل (يشوفوا ويعدّلوا: التنبيه، العلامات، الجدول)</h3>${list('parents')}
         <form class="ask" data-k="parents" style="margin-top:10px"><input type="email" dir="ltr" placeholder="إيميل الأم أو الأب"><button class="btn green">إضافة</button></form></div>
       <div class="card" style="margin-top:12px"><h3>🧒 ${esc(S.name)} (يشوف ويحل الاختبارات بس)</h3>${list('students')}
-        <form class="ask" data-k="students" style="margin-top:10px"><input type="email" dir="ltr" placeholder="إيميل الطالب"><button class="btn green">إضافة</button></form></div>`;
+        <form class="ask" data-k="students" style="margin-top:10px;flex-wrap:wrap"><input type="email" dir="ltr" placeholder="إيميل الطالب"><input class="pw" type="text" dir="ltr" placeholder="كلمة مرور جديدة (اختياري)"><button class="btn green">إضافة</button></form>
+        <div class="muted" style="font-size:13px;margin-top:6px">إذا كتبتي كلمة مرور منعمل للطالب حساب جديد بهالإيميل.</div></div>`;
     const save = async (k, arr) => {
       try { await setDoc(accessRef, { [k]: arr }, { merge: true }); access[k] = arr; toast('تم الحفظ ✅'); routes.accounts(); }
       catch { toast('ما زبط — تأكدي إن قواعد Firebase محدّثة'); }
     };
-    app.querySelectorAll('form.ask').forEach((f) => f.onsubmit = (e) => { e.preventDefault();
-      const k = f.dataset.k, em = f.querySelector('input').value.trim().toLowerCase();
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return toast('الإيميل غير صحيح');
+    app.querySelectorAll('form.ask').forEach((f) => f.onsubmit = async (e) => { e.preventDefault();
+      const k = f.dataset.k, em = f.querySelector('input').value.trim().toLowerCase(), pw = f.querySelector('.pw');
+      if (!EMAIL_RE.test(em)) return toast('الإيميل غير صحيح');
       if ((access[k] || []).includes(em)) return toast('موجود من قبل');
+      if (pw && pw.value) { const err = await createChildAccount(em, pw.value); if (err) return toast(err); }
       save(k, [...(access[k] || []), em]); });
     app.querySelectorAll('.x').forEach((b) => b.onclick = () => {
       if (confirm('إزالة ' + b.dataset.e + '؟')) save(b.dataset.k, access[b.dataset.k].filter((e) => e !== b.dataset.e)); });
@@ -718,6 +790,73 @@ function runQuiz(s, lesson) {
   show();
 }
 
+// ---- accounts: role, child accounts, link requests ----
+function askRole() {
+  const m = $('modal');
+  $('modalBox').innerHTML = `<h3>أهلاً 👋 مين إنت؟</h3><div class="muted">عشان نجهّزلك الحساب صح</div>
+    <div class="big" style="margin-top:12px"><button class="bigbtn" data-r="parent"><span class="ic">👩‍👧</span><b>أم / أب</b><small>بضيف أولادي وبتابعهم</small></button>
+    <button class="bigbtn" data-r="student"><span class="ic">🧒</span><b>طالب</b><small>بربط حسابي مع أهلي</small></button></div>`;
+  m.classList.add('show');
+  $('modalBox').querySelectorAll('[data-r]').forEach((b) => b.onclick = async () => {
+    const r = b.dataset.r;
+    try { await setDoc(doc(db, 'owners', myEmail()), { role: r }, { merge: true }); } catch { return toast('ما زبط — تأكدي إن قواعد Firebase محدّثة'); }
+    role = r; isParentAcct = r === 'parent'; m.classList.remove('show'); updateLock();
+    if (r === 'parent' && !pinHash) askPin(() => go('#/kids')); else go(r === 'parent' ? '#/kids' : '#/link');
+  });
+}
+let auth2;
+async function createChildAccount(email, pw) { // a second Firebase app, so the parent stays signed in
+  auth2 ||= getAuth(initializeApp(S.firebase, 'kids'));
+  try { await createUserWithEmailAndPassword(auth2, email, pw); return null; }
+  catch (x) { const c = String(x && x.code);
+    return /email-already-in-use/.test(c) ? null /* already has an account: just link it */
+      : /weak-password/.test(c) ? 'كلمة مرور الطالب لازم تكون 6 أحرف أو أكثر' : /invalid-email/.test(c) ? 'إيميل الطالب غير صحيح' : 'ما زبط إنشاء حساب الطالب'; }
+  finally { signOut(auth2).catch(() => {}); }
+}
+async function approve(r, sid) {
+  const em = myEmail();
+  try {
+    if (!sid) {
+      sid = newSid();
+      await setDoc(doc(db, 'access', sid), { parents: [em], students: [r.from] });
+      await setDoc(doc(db, 'students', sid), { name: r.name, grade: +r.grade || 1, created: serverTimestamp() });
+      kids.push({ sid, name: r.name, grade: +r.grade || 1, parent: true });
+    } else await setDoc(doc(db, 'access', sid), { students: arrayUnion(r.from) }, { merge: true });
+    await deleteDoc(doc(db, 'requests', r.id));
+  } catch { return toast('ما زبط — تأكدي إن قواعد Firebase محدّثة'); }
+  requests = requests.filter((x) => x.id !== r.id); toast(`تم ربط حساب ${r.name} ✅`); routes.kids();
+}
+
+// side menu: every page and grade in one place; private pages show a lock until allowed
+function renderMenu() {
+  const cur = location.hash || '#/';
+  const it = (h, ic, t, lock) => `<a href="${h}" class="${cur === h ? 'on' : ''}"><span>${ic}</span>${t}${lock ? '<small>🔒</small>' : ''}</a>`;
+  let h = `<div class="dhead"><b>${esc(S.name || 'منصة الطالب')}</b><small>${esc(S.gradeName)}</small></div>`;
+  h += it('#/', '🏠', 'الرئيسية') + it('#/subjects', '📚', 'المواد والاختبارات') + it('#/schedule', '🗓️', 'جدول الدراسة')
+    + it('#/report', '📊', 'التقرير', !canSeeReport()) + it('#/grades', '📝', 'علامات المدرسة', !canView) + it('#/ai', '🤖', 'المساعد الذكي');
+  if (S.sid) h += `<div class="dsec">الصف</div>` + it('#/pick', '🎓', `صف ${esc(S.name)}: ${esc(S.gradeName)}`, !canEdit());
+  else h += `<div class="dsec">الصفوف</div><div class="dgrades">${Object.keys(P.grades).map((g) =>
+    `<button data-g="${g}" class="${+g === S.grade ? 'on' : ''}">${esc(P.grades[g].name.replace('الصف ', ''))}</button>`).join('')}</div>`;
+  h += `<div class="dsec">الحساب</div>`;
+  if (!user) h += `<a href="#" id="dLogin"><span>👤</span>تسجيل الدخول / حساب جديد</a>`;
+  else {
+    if (isParentAcct) h += it('#/kids', '👧👦', `أولادي${requests.length ? ` <b class="dot2">${requests.length}</b>` : ''}`)
+      + (S.sid && isMama ? it('#/accounts', '👥', `حسابات ${esc(S.name)}`, !canEdit()) : '')
+      + `<a href="#" id="dLock"><span>${parentMode ? '🔓' : '🔒'}</span>${parentMode ? 'قفل وضع الأهل' : 'فتح وضع الأهل'}</a>`;
+    else h += it('#/link', '🔗', kids.length ? 'حسابي' : 'ربط حسابي مع أهلي');
+    h += `<a href="#" id="dOut"><span>🚪</span>خروج<small dir="ltr">${esc(myEmail())}</small></a>`;
+  }
+  const box = $('dbox'); box.innerHTML = h;
+  box.querySelectorAll('[data-g]').forEach((b) => b.onclick = () => { setGrade(+b.dataset.g); closeMenu(); location.hash === '#/' ? render() : go('#/'); });
+  box.querySelectorAll('a[href^="#/"]').forEach((a) => a.onclick = closeMenu);
+  const on = (id, f) => { const e = $(id); if (e) e.onclick = (ev) => { ev.preventDefault(); closeMenu(); f(); }; };
+  on('dLogin', openLogin); on('dLock', () => askPin()); on('dOut', () => signOut(auth).then(() => toast('تم الخروج')));
+}
+function openMenu() { renderMenu(); $('drawer').classList.add('show'); }
+function closeMenu() { $('drawer').classList.remove('show'); }
+$('menuBtn').onclick = openMenu;
+$('drawer').onclick = (e) => { if (e.target.id === 'drawer') closeMenu(); };
+
 // ---- mama ----
 async function saveNote(text) {
   try { await setDoc(infoRef, { note: text, noteAt: serverTimestamp() }, { merge: true }); toast('تم حفظ التنبيه ✅'); }
@@ -725,7 +864,7 @@ async function saveNote(text) {
 }
 function openLogin() {
   const m = $('modal');
-  $('modalBox').innerHTML = `<h3>👤 تسجيل الدخول</h3><div class="muted">ادخلي بإيميلك وكلمة المرور الخاصة فيك</div>
+  $('modalBox').innerHTML = `<h3>👤 تسجيل الدخول</h3><div class="muted">ادخل بإيميلك وكلمة المرور، أو اكتبهم واضغط «حساب جديد» لو أول مرة</div>
     <input type="email" id="em" autocomplete="email" placeholder="البريد الإلكتروني" dir="ltr">
     <input type="password" id="pw" autocomplete="current-password" placeholder="كلمة المرور" dir="ltr">
     <div class="err" id="pwErr"></div>
@@ -740,7 +879,7 @@ function openLogin() {
   $('pwGo').onclick = async () => { const { e, p } = val(); err('');
     try { await signInWithEmailAndPassword(auth, e, p); m.classList.remove('show'); toast('أهلاً وسهلاً 💙'); } catch (x) { err(msgOf(x)); } };
   $('pwNew').onclick = async () => { const { e, p } = val(); err('');
-    try { await createUserWithEmailAndPassword(auth, e, p); m.classList.remove('show'); toast('تم إنشاء حسابك ✅ — المسؤولة بتعطيك صلاحية التعديل'); } catch (x) { err(msgOf(x)); } };
+    try { await createUserWithEmailAndPassword(auth, e, p); m.classList.remove('show'); toast('تم إنشاء حسابك ✅'); } catch (x) { err(msgOf(x)); } };
   $('pwForgot').onclick = async (ev) => { ev.preventDefault(); const { e } = val(); if (!e) return err('اكتبي إيميلك أولاً');
     try { await sendPasswordResetEmail(auth, e); err(''); toast('بعتنالك رابط لتغيير كلمة المرور على الإيميل 📧'); } catch (x) { err(msgOf(x)); } };
   $('pw').onkeydown = (ev) => { if (ev.key === 'Enter') $('pwGo').click(); };
