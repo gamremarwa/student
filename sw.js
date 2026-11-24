@@ -1,6 +1,6 @@
 // Minimal service worker: makes the site installable and keeps the shell usable on weak connections.
 // Network first (so updates show immediately), cached copy as a fallback when offline.
-const CACHE = 'site-v1';
+const CACHE = 'site-v2';
 self.addEventListener('install', (e) => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', (e) => {

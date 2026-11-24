@@ -1,34 +1,37 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" data-mode="light" data-accent="blue">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#1d4ed8">
+<meta name="theme-color" content="#ffffff">
 <link rel="apple-touch-icon" href="images/icon-192.png">
 <title>منصة الطالب</title>
+<script>try { var t = JSON.parse(localStorage.getItem('theme') || '{}'); if (t.mode) document.documentElement.dataset.mode = t.mode; if (t.accent) document.documentElement.dataset.accent = t.accent; } catch (e) {}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=12">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css?v=20">
 </head>
 <body>
-<header class="topbar"><div class="in">
-  <button class="menu" id="menuBtn" aria-label="القائمة">☰</button>
-  <a class="home" href="#/" title="الرئيسية">🏠</a>
-  <div class="who"><b id="sname"></b><small id="sgrade"></small></div>
-  <button class="mama" id="lockBtn" hidden>🔒 الأهل</button>
-  <button class="mama" id="mamaBtn">👤 تسجيل الدخول</button>
+<header class="top"><div class="in">
+  <button class="icon-btn" id="menuBtn" aria-label="القائمة">☰</button>
+  <div class="title" id="ttl"></div>
+  <nav class="links" id="links"></nav>
+  <button class="icon-btn" id="themeBtn" aria-label="المظهر">◐</button>
+  <button class="icon-btn" id="acctBtn" aria-label="الحساب">👤</button>
 </div></header>
 
 <main id="app"></main>
 
-<div class="drawer" id="drawer"><nav class="dbox" id="dbox"></nav></div>
+<nav class="tabs" id="tabs"></nav>
+<div class="veil" id="veil"></div>
+<aside class="sheet" id="sheet"></aside>
 <div class="modal" id="modal"><div class="box" id="modalBox"></div></div>
 <div class="toast" id="toast"></div>
 
-<script src="config.js?v=4"></script>
-<script type="module" src="app.js?v=13"></script>
-<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});</script>
+<script src="config.js?v=5"></script>
+<script type="module" src="app.js?v=20"></script>
+<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});</script>
 </body>
 </html>
